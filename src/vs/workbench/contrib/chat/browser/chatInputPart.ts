@@ -91,7 +91,7 @@ import { ChatAttachmentModel, EditsAttachmentModel } from './chatAttachmentModel
 import { IDisposableReference } from './chatContentParts/chatCollections.js';
 import { CollapsibleListPool, IChatCollapsibleListItem } from './chatContentParts/chatReferencesContentPart.js';
 import { ChatDragAndDrop, EditsDragAndDrop } from './chatDragAndDrop.js';
-import { ChatEditingShowChangesAction } from './chatEditing/chatEditingActions.js';
+import { ChatEditingRemoveAllFilesAction, ChatEditingShowChangesAction } from './chatEditing/chatEditingActions.js';
 import { ChatEditingSaveAllAction } from './chatEditorSaving.js';
 import { ChatFollowups } from './chatFollowups.js';
 import { IChatViewState } from './chatWidget.js';
@@ -1035,8 +1035,8 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 				kind: 'reference',
 			};
 		}) ?? [];
-		for (const attachment of this.attachmentModel.attachments) {
-			if (attachment.isFile && URI.isUri(attachment.value) && !seenEntries.has(attachment.value)) {
+		for (const attachment of (this.attachmentModel as EditsAttachmentModel).fileAttachments) {
+			if (URI.isUri(attachment.value) && !seenEntries.has(attachment.value)) {
 				entries.unshift({
 					reference: attachment.value,
 					state: WorkingSetEntryState.Attached,
@@ -1099,9 +1099,11 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 		// Record the number of entries that the user wanted to add to the working set
 		this._attemptedWorkingSetEntriesCount = entries.length + excludedEntries.length;
 
+		let suggestedFilesInWorkingSetCount = 0;
 		overviewFileCount.textContent = '';
 		if (entries.length === 1) {
 			overviewFileCount.textContent = ' ' + localize('chatEditingSession.oneFile', '(1 file)');
+			suggestedFilesInWorkingSetCount = entries[0].kind === 'reference' && entries[0].state === WorkingSetEntryState.Suggested ? 1 : 0;
 		} else if (entries.length >= remainingFileEntriesBudget) {
 			// The user tried to attach too many files, we have to drop anything after the limit
 			const entriesToPreserve: IChatCollapsibleListItem[] = [];
@@ -1136,13 +1138,16 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 			// so that the Add Files button remains enabled and the user can easily
 			// override the suggestions with their own manual file selections
 			entries = [...entriesToPreserve, ...newEntriesThatFit, ...suggestedFilesThatFit];
-		}
-		if (entries.length > 1) {
-			overviewFileCount.textContent = ' ' + localize('chatEditingSession.manyFiles', '({0} files)', entries.length);
+			suggestedFilesInWorkingSetCount = suggestedFilesThatFit.length;
+		} else {
+			suggestedFilesInWorkingSetCount = entries.filter(e => e.kind === 'reference' && e.state === WorkingSetEntryState.Suggested).length;
 		}
 
 		if (excludedEntries.length > 0) {
-			overviewFileCount.textContent = ' ' + localize('chatEditingSession.excludedFiles', '({0} files, {1} excluded)', entries.length, excludedEntries.length);
+			overviewFileCount.textContent = ' ' + localize('chatEditingSession.excludedFiles', '({0}/{1} files)', this.chatEditingService.editingSessionFileLimit + excludedEntries.length, this.chatEditingService.editingSessionFileLimit);
+		} else if (entries.length > 1) {
+			const fileCount = entries.length - suggestedFilesInWorkingSetCount;
+			overviewFileCount.textContent = ' ' + (fileCount === 1 ? localize('chatEditingSession.oneFile', '(1 file)') : localize('chatEditingSession.manyFiles', '({0} files)', fileCount));
 		}
 
 		const fileLimitReached = remainingFileEntriesBudget <= 0;
@@ -1174,7 +1179,7 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 				arg: { sessionId: chatEditingSession.chatSessionId },
 			},
 			buttonConfigProvider: (action) => {
-				if (action.id === ChatEditingShowChangesAction.ID || action.id === ChatEditingSaveAllAction.ID) {
+				if (action.id === ChatEditingShowChangesAction.ID || action.id === ChatEditingSaveAllAction.ID || action.id === ChatEditingRemoveAllFilesAction.ID) {
 					return { showIcon: true, showLabel: false, isSecondary: true };
 				}
 				return undefined;
