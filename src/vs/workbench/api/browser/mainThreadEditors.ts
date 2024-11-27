@@ -33,6 +33,9 @@ import { IDirtyDiffModelService } from '../../contrib/scm/browser/diff.js';
 import { autorun, constObservable, derived, derivedOpts, IObservable, observableFromEvent } from '../../../base/common/observable.js';
 import { IUriIdentityService } from '../../../platform/uriIdentity/common/uriIdentity.js';
 import { isITextModel } from '../../../editor/common/model.js';
+import { LineRangeMapping } from '../../../editor/common/diff/rangeMapping.js';
+import { equals } from '../../../base/common/arrays.js';
+import { Event } from '../../../base/common/event.js';
 
 export interface IMainThreadEditorLocator {
 	getEditor(id: string): MainThreadTextEditor | undefined;
@@ -128,7 +131,7 @@ export class MainThreadTextEditors implements MainThreadTextEditorsShape {
 		return result;
 	}
 
-	private _getTextEditorDiffInformation(textEditor: MainThreadTextEditor): IObservable<ITextEditorDiffInformation | undefined> {
+	private _getTextEditorDiffInformation(textEditor: MainThreadTextEditor): IObservable<ITextEditorDiffInformation[] | undefined> {
 		const codeEditor = textEditor.getCodeEditor();
 		if (!codeEditor) {
 			return constObservable(undefined);
@@ -144,50 +147,49 @@ export class MainThreadTextEditors implements MainThreadTextEditorsShape {
 			? observableFromEvent(this, diffEditor.onDidChangeModel, () => diffEditor.getModel())
 			: observableFromEvent(this, codeEditor.onDidChangeModel, () => codeEditor.getModel());
 
-		const editorChangesObs = derived<IObservable<{ original: URI; modified: URI; changes: IChange[] } | undefined>>(reader => {
+		const editorChangesObs = derived<IObservable<{ original: URI; modified: URI; changes: readonly LineRangeMapping[] }[] | undefined>>(reader => {
 			const editorModel = editorModelObs.read(reader);
 			if (!editorModel) {
 				return constObservable(undefined);
 			}
 
-			// DiffEditor
-			if (!isITextModel(editorModel)) {
-				return observableFromEvent(diffEditor.onDidUpdateDiff, () => {
-					return {
-						original: editorModel.original.uri,
-						modified: editorModel.modified.uri,
-						changes: diffEditor.getLineChanges() ?? []
-					};
-				});
-			}
+			const editorModelUri = isITextModel(editorModel)
+				? editorModel.uri
+				: editorModel.modified.uri;
 
-			// TextEditor
-			const dirtyDiffModel = this._dirtyDiffModelService.getOrCreateModel(editorModel.uri);
+			// DirtyDiffModel - we create a dirty diff model for both the text editor and the
+			// diff editor so that we can provide multiple "original resources" to diff with
+			// the modified resource.
+			const dirtyDiffModel = this._dirtyDiffModelService.getOrCreateModel(editorModelUri);
 			if (!dirtyDiffModel) {
 				return constObservable(undefined);
 			}
 
-			return observableFromEvent(this, dirtyDiffModel.onDidChange, () => {
-				const scmQuickDiff = dirtyDiffModel.quickDiffs.find(diff => diff.isSCM === true);
-				if (!scmQuickDiff) {
-					return undefined;
-				}
+			// TextEditor
+			if (isITextModel(editorModel)) {
+				return observableFromEvent(this, dirtyDiffModel.onDidChange, () => {
+					return dirtyDiffModel.getQuickDiffResults();
+				});
+			}
 
-				const changes = dirtyDiffModel.changes
-					.filter(change => change.label === scmQuickDiff.label)
-					.map(change => change.change);
+			// DiffEditor
+			return observableFromEvent(Event.any(dirtyDiffModel.onDidChange, diffEditor.onDidUpdateDiff), () => {
+				const dirtyDiffInformation = dirtyDiffModel.getQuickDiffResults();
 
-				return {
-					original: scmQuickDiff.originalResource,
-					modified: editorModel.uri,
-					changes
-				};
+				const diffChanges = diffEditor.getDiffComputationResult()?.changes2 ?? [];
+				const diffInformation = [{
+					original: editorModel.original.uri,
+					modified: editorModel.modified.uri,
+					changes: diffChanges.map(change => change as LineRangeMapping)
+				}];
+
+				return [...dirtyDiffInformation, ...diffInformation];
 			});
 		});
 
 		return derivedOpts({
 			owner: this,
-			equalsFn: (diff1, diff2) => isTextEditorDiffInformationEqual(this._uriIdentityService, diff1, diff2)
+			equalsFn: (diff1, diff2) => equals(diff1, diff2, (a, b) => isTextEditorDiffInformationEqual(this._uriIdentityService, a, b))
 		}, reader => {
 			const editorModel = editorModelObs.read(reader);
 			const editorChanges = editorChangesObs.read(reader).read(reader);
@@ -199,20 +201,22 @@ export class MainThreadTextEditors implements MainThreadTextEditorsShape {
 				? editorModel.getVersionId()
 				: editorModel.modified.getVersionId();
 
-			const changes: ITextEditorChange[] = editorChanges.changes
-				.map(change => [
-					change.originalStartLineNumber,
-					change.originalEndLineNumber,
-					change.modifiedStartLineNumber,
-					change.modifiedEndLineNumber
-				]);
+			return editorChanges.map(change => {
+				const changes: ITextEditorChange[] = change.changes
+					.map(change => [
+						change.original.startLineNumber,
+						change.original.endLineNumberExclusive,
+						change.modified.startLineNumber,
+						change.modified.endLineNumberExclusive
+					]);
 
-			return {
-				documentVersion,
-				original: editorChanges.original,
-				modified: editorChanges.modified,
-				changes
-			};
+				return {
+					documentVersion,
+					original: change.original,
+					modified: change.modified,
+					changes
+				};
+			});
 		});
 	}
 
