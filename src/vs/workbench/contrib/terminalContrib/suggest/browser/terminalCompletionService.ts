@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 import { CancellationToken } from '../../../../../base/common/cancellation.js';
 import { Disposable, IDisposable, toDisposable } from '../../../../../base/common/lifecycle.js';
+import { Schemas } from '../../../../../base/common/network.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { IFileService } from '../../../../../platform/files/common/files.js';
@@ -75,7 +76,7 @@ export interface ITerminalCompletionService {
 	_serviceBrand: undefined;
 	readonly providers: IterableIterator<ITerminalCompletionProvider>;
 	registerTerminalCompletionProvider(extensionIdentifier: string, id: string, provider: ITerminalCompletionProvider, ...triggerCharacters: string[]): IDisposable;
-	provideCompletions(promptValue: string, cursorPosition: number, shellType: TerminalShellType, token: CancellationToken, triggerCharacter?: boolean): Promise<ITerminalCompletion[] | undefined>;
+	provideCompletions(promptValue: string, cursorPosition: number, shellType: TerminalShellType, token: CancellationToken, triggerCharacter?: boolean, skipExtensionCompletions?: boolean): Promise<ITerminalCompletion[] | undefined>;
 }
 
 export class TerminalCompletionService extends Disposable implements ITerminalCompletionService {
@@ -120,7 +121,7 @@ export class TerminalCompletionService extends Disposable implements ITerminalCo
 		});
 	}
 
-	async provideCompletions(promptValue: string, cursorPosition: number, shellType: TerminalShellType, token: CancellationToken, triggerCharacter?: boolean): Promise<ITerminalCompletion[] | undefined> {
+	async provideCompletions(promptValue: string, cursorPosition: number, shellType: TerminalShellType, token: CancellationToken, triggerCharacter?: boolean, skipExtensionCompletions?: boolean): Promise<ITerminalCompletion[] | undefined> {
 		if (!this._providers || !this._providers.values) {
 			return undefined;
 		}
@@ -145,7 +146,7 @@ export class TerminalCompletionService extends Disposable implements ITerminalCo
 			providers = [...this._providers.values()].flatMap(providerMap => [...providerMap.values()]);
 		}
 
-		if (!extensionCompletionsEnabled) {
+		if (!extensionCompletionsEnabled || skipExtensionCompletions) {
 			providers = providers.filter(p => p.isBuiltin);
 		}
 
@@ -161,23 +162,16 @@ export class TerminalCompletionService extends Disposable implements ITerminalCo
 			if (!completions) {
 				return undefined;
 			}
-			const devModeEnabled = this._configurationService.getValue(TerminalSettingId.DevMode);
 			const completionItems = Array.isArray(completions) ? completions : completions.items ?? [];
-
-			const itemsWithModifiedLabels = completionItems.map(completion => {
-				if (devModeEnabled && !completion.detail?.includes(provider.id)) {
-					completion.detail = `(${provider.id}) ${completion.detail ?? ''}`;
-				}
-				return completion;
-			});
+			const itemsWithModifiedLabels = this._addDevModeLabel(completionItems, provider.id);
 
 			if (Array.isArray(completions)) {
 				return itemsWithModifiedLabels;
 			}
 			if (completions.resourceRequestConfig) {
-				const resourceCompletions = await this._resolveResources(completions.resourceRequestConfig, promptValue, cursorPosition);
+				const resourceCompletions = await this.resolveResources(completions.resourceRequestConfig, promptValue, cursorPosition);
 				if (resourceCompletions) {
-					itemsWithModifiedLabels.push(...resourceCompletions);
+					itemsWithModifiedLabels.push(...this._addDevModeLabel(resourceCompletions, provider.id));
 				}
 				return itemsWithModifiedLabels;
 			}
@@ -188,7 +182,19 @@ export class TerminalCompletionService extends Disposable implements ITerminalCo
 		return results.filter(result => !!result).flat();
 	}
 
-	private async _resolveResources(resourceRequestConfig: TerminalResourceRequestConfig, promptValue: string, cursorPosition: number): Promise<ITerminalCompletion[] | undefined> {
+	private _addDevModeLabel(completions: ITerminalCompletion[], providerId: string): ITerminalCompletion[] {
+		const devModeEnabled = this._configurationService.getValue(TerminalSettingId.DevMode);
+		return completions.map(completion => {
+			// TODO: This providerId check shouldn't be necessary, instead we should ensure this
+			//       function is never called twice
+			if (devModeEnabled && !completion.detail?.includes(providerId)) {
+				completion.detail = `(${providerId}) ${completion.detail ?? ''}`;
+			}
+			return completion;
+		});
+	}
+
+	async resolveResources(resourceRequestConfig: TerminalResourceRequestConfig, promptValue: string, cursorPosition: number): Promise<ITerminalCompletion[] | undefined> {
 		const cwd = URI.revive(resourceRequestConfig.cwd);
 		const foldersRequested = resourceRequestConfig.foldersRequested ?? false;
 		const filesRequested = resourceRequestConfig.filesRequested ?? false;
@@ -196,11 +202,18 @@ export class TerminalCompletionService extends Disposable implements ITerminalCo
 			return;
 		}
 
-		const resourceCompletions: ITerminalCompletion[] = [];
 		const fileStat = await this._fileService.resolve(cwd, { resolveSingleChildDescendants: true });
-
 		if (!fileStat || !fileStat?.children) {
 			return;
+		}
+
+		const resourceCompletions: ITerminalCompletion[] = [];
+		const endsWithSpace = promptValue.substring(0, cursorPosition).endsWith(' ');
+		let lastWord;
+		if (endsWithSpace) {
+			lastWord = '';
+		} else {
+			lastWord = promptValue.substring(0, cursorPosition).trim().split(' ').at(-1) ?? '';
 		}
 
 		for (const stat of fileStat.children) {
@@ -208,33 +221,32 @@ export class TerminalCompletionService extends Disposable implements ITerminalCo
 			if (foldersRequested && stat.isDirectory) {
 				kind = TerminalCompletionItemKind.Folder;
 			}
-			if (filesRequested && !stat.isDirectory && (stat.isFile || stat.resource.scheme === 'file')) {
+			if (filesRequested && !stat.isDirectory && (stat.isFile || stat.resource.scheme === Schemas.file)) {
 				kind = TerminalCompletionItemKind.File;
 			}
 			if (kind === undefined) {
 				continue;
 			}
-			const lastWord = promptValue.substring(0, cursorPosition).split(' ').pop();
-			const lastIndexOfDot = lastWord?.lastIndexOf('.') ?? -1;
-			const lastIndexOfSlash = lastWord?.lastIndexOf(resourceRequestConfig.pathSeparator) ?? -1;
-			let label;
-			if (lastIndexOfSlash > -1) {
-				label = stat.resource.fsPath.replace(cwd.fsPath, '').substring(1);
-			} else if (lastIndexOfDot === -1) {
-				label = '.' + stat.resource.fsPath.replace(cwd.fsPath, '');
-			} else {
-				label = stat.resource.fsPath.replace(cwd.fsPath, '');
+			const isDirectory = kind === TerminalCompletionItemKind.Folder;
+			const pathToResource = stat.resource.fsPath.replace(cwd.fsPath, '');
+			let label = pathToResource;
+			if (isDirectory && !label.endsWith(resourceRequestConfig.pathSeparator)) {
+				label = label + resourceRequestConfig.pathSeparator;
 			}
-
+			const startsWithDot = lastWord && lastWord.startsWith('.');
+			if (!startsWithDot) {
+				label = '.' + label;
+			}
 			resourceCompletions.push({
 				label,
 				kind,
-				isDirectory: kind === TerminalCompletionItemKind.Folder,
+				isDirectory,
 				isFile: kind === TerminalCompletionItemKind.File,
-				replacementIndex: cursorPosition,
-				replacementLength: label.length
+				replacementIndex: promptValue[cursorPosition - 1] === ' ' ? cursorPosition : cursorPosition - 1,
+				replacementLength: label.length - lastWord.length > 0 ? label.length - lastWord.length : label.length,
 			});
 		}
+
 		return resourceCompletions.length ? resourceCompletions : undefined;
 	}
 }
