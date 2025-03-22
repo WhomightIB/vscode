@@ -157,7 +157,6 @@ export interface IChatListItemRendererOptions {
 	readonly renderStyle?: 'compact' | 'minimal';
 	readonly noHeader?: boolean;
 	readonly editableCodeBlock?: boolean;
-	readonly renderCodeBlockPills?: boolean | ((mode: ChatMode) => boolean);
 	readonly renderDetectedCommandsWithRequest?: boolean;
 	readonly renderTextEditsAsSummary?: (uri: URI) => boolean;
 	readonly referencesExpandedWhenEmptyResponse?: boolean | ((mode: ChatMode) => boolean);
@@ -241,7 +240,6 @@ export interface IChatWidget {
 	logInputHistory(): void;
 	acceptInput(query?: string, options?: IChatAcceptInputOptions): Promise<IChatResponseModel | undefined>;
 	rerunLastRequest(): Promise<void>;
-	acceptInputWithPrefix(prefix: string): void;
 	setInputPlaceholder(placeholder: string): void;
 	resetInputPlaceholder(): void;
 	focusLastMessage(): void;
