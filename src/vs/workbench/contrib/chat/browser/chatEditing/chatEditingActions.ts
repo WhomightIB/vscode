@@ -67,7 +67,7 @@ export function getEditingSessionContext(accessor: ServicesAccessor, args: any[]
 	if (!chatWidget) {
 		if (chatService.unifiedViewEnabled) {
 			// TODO ugly
-			chatWidget = chatWidgetService.getWidgetsByLocations(ChatAgentLocation.Panel).find(w => w.isUnifiedPanelWidget);
+			chatWidget = chatWidgetService.lastFocusedWidget ?? chatWidgetService.getWidgetsByLocations(ChatAgentLocation.Panel).find(w => w.isUnifiedPanelWidget);
 		} else {
 			chatWidget = chatWidgetService.getWidgetsByLocations(ChatAgentLocation.EditingSession).at(0);
 		}
@@ -430,7 +430,7 @@ registerAction2(class AddFilesToWorkingSetAction extends EditingSessionAction {
 		}
 
 		for (const file of uris) {
-			chatWidget.attachmentModel.addFile(file);
+			await chatWidget.attachmentModel.addFile(file);
 		}
 	}
 });
@@ -439,7 +439,7 @@ registerAction2(class RemoveAction extends Action2 {
 	constructor() {
 		super({
 			id: 'workbench.action.chat.undoEdits',
-			title: localize2('chat.undoEdits.label', "Undo Edits"),
+			title: localize2('chat.undoEdits.label', "Undo Requests"),
 			f1: false,
 			category: CHAT_CATEGORY,
 			icon: Codicon.x,
@@ -448,7 +448,7 @@ registerAction2(class RemoveAction extends Action2 {
 				mac: {
 					primary: KeyMod.CtrlCmd | KeyCode.Backspace,
 				},
-				when: ContextKeyExpr.and(ChatContextKeys.chatMode.notEqualsTo(ChatMode.Ask), ChatContextKeys.inChatSession, ChatContextKeys.inChatInput.negate()),
+				when: ContextKeyExpr.and(ChatContextKeys.inChatSession, EditorContextKeys.textInputFocus.negate()),
 				weight: KeybindingWeight.WorkbenchContrib,
 			},
 			menu: [
@@ -456,7 +456,7 @@ registerAction2(class RemoveAction extends Action2 {
 					id: MenuId.ChatMessageTitle,
 					group: 'navigation',
 					order: 2,
-					when: ContextKeyExpr.and(ChatContextKeys.chatMode.notEqualsTo(ChatMode.Ask), ChatContextKeys.isRequest)
+					when: ChatContextKeys.isRequest
 				}
 			]
 		});
@@ -476,14 +476,13 @@ registerAction2(class RemoveAction extends Action2 {
 
 		const configurationService = accessor.get(IConfigurationService);
 		const dialogService = accessor.get(IDialogService);
-		const chatEditingService = accessor.get(IChatEditingService);
 		const chatService = accessor.get(IChatService);
 		const chatModel = chatService.getSession(item.sessionId);
-		if (chatModel?.initialLocation !== ChatAgentLocation.EditingSession) {
+		if (!chatModel) {
 			return;
 		}
 
-		const session = chatEditingService.getEditingSession(chatModel.sessionId);
+		const session = chatModel.editingSession;
 		if (!session) {
 			return;
 		}

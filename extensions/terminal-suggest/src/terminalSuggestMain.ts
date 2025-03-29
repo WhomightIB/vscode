@@ -13,7 +13,7 @@ import codeInsidersCompletionSpec from './completions/code-insiders';
 import npxCompletionSpec from './completions/npx';
 import setLocationSpec from './completions/set-location';
 import { upstreamSpecs } from './constants';
-import { PathExecutableCache } from './env/pathExecutableCache';
+import { ITerminalEnvironment, PathExecutableCache, watchPathDirectories } from './env/pathExecutableCache';
 import { osIsWindows } from './helpers/os';
 import { getFriendlyResourcePath } from './helpers/uri';
 import { getBashGlobals } from './shell/bash';
@@ -26,6 +26,8 @@ import { createCompletionItem } from './helpers/completionItem';
 import { getFigSuggestions } from './fig/figInterface';
 import { executeCommand, executeCommandTimeout, IFigExecuteExternals } from './fig/execute';
 import { createTimeoutPromise } from './helpers/promise';
+import codeTunnelCompletionSpec from './completions/code-tunnel';
+import codeTunnelInsidersCompletionSpec from './completions/code-tunnel-insiders';
 
 export const enum TerminalShellType {
 	Bash = 'bash',
@@ -43,6 +45,8 @@ export const availableSpecs: Fig.Spec[] = [
 	cdSpec,
 	codeInsidersCompletionSpec,
 	codeCompletionSpec,
+	codeTunnelCompletionSpec,
+	codeTunnelInsidersCompletionSpec,
 	npxCompletionSpec,
 	setLocationSpec,
 ];
@@ -79,13 +83,15 @@ async function getShellGlobals(shellType: TerminalShellType, existingCommands?: 
 	}
 }
 
+
 export async function activate(context: vscode.ExtensionContext) {
 	pathExecutableCache = new PathExecutableCache();
 	context.subscriptions.push(pathExecutableCache);
-
+	let currentTerminalEnv: ITerminalEnvironment = process.env;
 	context.subscriptions.push(vscode.window.registerTerminalCompletionProvider({
 		id: 'terminal-suggest',
 		async provideTerminalCompletions(terminal: vscode.Terminal, terminalContext: vscode.TerminalCompletionContext, token: vscode.CancellationToken): Promise<vscode.TerminalCompletionItem[] | vscode.TerminalCompletionList | undefined> {
+			currentTerminalEnv = terminal.shellIntegration?.env?.value ?? process.env;
 			if (token.isCancellationRequested) {
 				console.debug('#terminalCompletions token cancellation requested');
 				return;
@@ -117,7 +123,7 @@ export async function activate(context: vscode.ExtensionContext) {
 					prefix,
 					tokenType,
 					terminal.shellIntegration?.cwd,
-					getEnvAsRecord(terminal.shellIntegration?.env?.value),
+					getEnvAsRecord(currentTerminalEnv),
 					terminal.name,
 					token
 				),
@@ -141,6 +147,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			return result.items;
 		}
 	}, '/', '\\'));
+	await watchPathDirectories(context, currentTerminalEnv, pathExecutableCache);
 }
 
 /**
@@ -264,7 +271,8 @@ export async function getCompletionItemsFromSpecs(
 					prefix,
 					command,
 					command.detail,
-					command.documentation
+					command.documentation,
+					vscode.TerminalCompletionItemKind.Method
 				));
 				labels.add(commandTextLabel);
 			} else {
@@ -274,6 +282,7 @@ export async function getCompletionItemsFromSpecs(
 				}
 				const preferredItem = compareItems(existingItem, command);
 				if (preferredItem) {
+					preferredItem.kind = vscode.TerminalCompletionItemKind.Method;
 					items.splice(items.indexOf(existingItem), 1, preferredItem);
 				}
 			}
@@ -311,7 +320,7 @@ function compareItems(existingItem: vscode.TerminalCompletionItem, command: ICom
 	}
 }
 
-function getEnvAsRecord(shellIntegrationEnv: { [key: string]: string | undefined } | undefined): Record<string, string> {
+function getEnvAsRecord(shellIntegrationEnv: ITerminalEnvironment): Record<string, string> {
 	const env: Record<string, string> = {};
 	for (const [key, value] of Object.entries(shellIntegrationEnv ?? process.env)) {
 		if (typeof value === 'string') {
