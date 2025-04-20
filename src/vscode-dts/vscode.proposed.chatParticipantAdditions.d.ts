@@ -30,8 +30,9 @@ declare module 'vscode' {
 	}
 
 	export class ChatResponseCodeblockUriPart {
+		isEdit?: boolean;
 		value: Uri;
-		constructor(value: Uri);
+		constructor(value: Uri, isEdit?: boolean);
 	}
 
 	/**
@@ -78,7 +79,7 @@ declare module 'vscode' {
 		constructor(value: Uri, license: string, snippet: string);
 	}
 
-	export type ExtendedChatResponsePart = ChatResponsePart | ChatResponseTextEditPart | ChatResponseConfirmationPart | ChatResponseCodeCitationPart | ChatResponseReferencePart2 | ChatResponseMovePart;
+	export type ExtendedChatResponsePart = ChatResponsePart | ChatResponseTextEditPart | ChatResponseNotebookEditPart | ChatResponseConfirmationPart | ChatResponseCodeCitationPart | ChatResponseReferencePart2 | ChatResponseMovePart | ChatResponseExtensionsPart;
 
 	export class ChatResponseWarningPart {
 		value: MarkdownString;
@@ -158,6 +159,13 @@ declare module 'vscode' {
 		resolve?(token: CancellationToken): Thenable<void>;
 	}
 
+	export class ChatResponseExtensionsPart {
+
+		readonly extensions: string[];
+
+		constructor(extensions: string[]);
+	}
+
 	export interface ChatResponseStream {
 
 		/**
@@ -179,7 +187,7 @@ declare module 'vscode' {
 		notebookEdit(target: Uri, isDone: true): void;
 
 		markdownWithVulnerabilities(value: string | MarkdownString, vulnerabilities: ChatVulnerability[]): void;
-		codeblockUri(uri: Uri): void;
+		codeblockUri(uri: Uri, isEdit?: boolean): void;
 		push(part: ChatResponsePart | ChatResponseTextEditPart | ChatResponseWarningPart | ChatResponseProgressPart2): void;
 
 		/**
@@ -431,5 +439,9 @@ declare module 'vscode' {
 		Short = 1,
 		Medium = 2,
 		Full = 3
+	}
+
+	export interface LanguageModelToolInvocationOptions<T> {
+		model?: LanguageModelChat;
 	}
 }

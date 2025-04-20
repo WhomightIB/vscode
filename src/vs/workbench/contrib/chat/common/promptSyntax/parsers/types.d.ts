@@ -70,7 +70,7 @@ interface IPromptReferenceBase extends IDisposable {
 
 	/**
 	 * The full range of the prompt reference in the source text,
-	 * including the {@linkcode linkRange} and any additional
+	 * including the {@link linkRange} and any additional
 	 * parts the reference may contain (e.g., the `#file:` prefix).
 	 */
 	readonly range: Range;
@@ -93,14 +93,14 @@ interface IPromptReferenceBase extends IDisposable {
 	/**
 	 * Whether the current reference points to a prompt snippet file.
 	 */
-	readonly isPromptSnippet: boolean;
+	readonly isPromptFile: boolean;
 
 	/**
 	 * Flag that indicates if resolving this reference failed.
 	 * The `undefined` means that no attempt to resolve the reference
 	 * was made so far or such an attempt is still in progress.
 	 *
-	 * See also {@linkcode errorCondition}.
+	 * See also {@link errorCondition}.
 	 */
 	readonly resolveFailed: boolean | undefined;
 
@@ -108,7 +108,7 @@ interface IPromptReferenceBase extends IDisposable {
 	 * If failed to resolve the reference this property contains
 	 * an error object that describes the failure reason.
 	 *
-	 * See also {@linkcode resolveFailed}.
+	 * See also {@link resolveFailed}.
 	 */
 	readonly errorCondition: ResolveError | undefined;
 
@@ -132,13 +132,13 @@ interface IPromptReferenceBase extends IDisposable {
 	/**
 	 * Direct references of the current reference.
 	 */
-	references: readonly IPromptReference[];
+	readonly references: readonly IPromptReference[];
 
 	/**
 	 * All references that the current reference may have,
 	 * including all possible nested child references.
 	 */
-	allReferences: readonly IPromptReference[];
+	readonly allReferences: readonly IPromptReference[];
 
 	/**
 	 * All *valid* references that the current reference may have,
@@ -148,7 +148,18 @@ interface IPromptReferenceBase extends IDisposable {
 	 * without creating a circular reference loop or having any other
 	 * issues that would make the reference resolve logic to fail.
 	 */
-	allValidReferences: readonly IPromptReference[];
+	readonly allValidReferences: readonly IPromptReference[];
+
+	/**
+	 * Associated `tools` metadata for the current reference.
+	 */
+	readonly toolsMetadata?: readonly string[] | null;
+
+	/**
+	 * Entire associated `tools` metadata for this reference and
+	 * all possible nested child references.
+	 */
+	readonly allToolsMetadata: readonly string[] | null;
 
 	/**
 	 * Returns a promise that resolves when the reference contents
@@ -161,14 +172,14 @@ interface IPromptReferenceBase extends IDisposable {
 	 * and contents for all possible nested child references are
 	 * completely parsed and entire tree of references is built.
 	 *
-	 * The same as {@linkcode settled} but for all prompts in
+	 * The same as {@link settled} but for all prompts in
 	 * the reference tree.
 	 */
 	allSettled(): Promise<this>;
 }
 
 /**
- * The special case of the {@linkcode IPromptReferenceBase} that pertains
+ * The special case of the {@link IPromptReferenceBase} that pertains
  * to a file resource on the disk.
  */
 export interface IPromptFileReference extends IPromptReferenceBase {

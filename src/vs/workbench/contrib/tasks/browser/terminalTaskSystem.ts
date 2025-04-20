@@ -287,11 +287,17 @@ export class TerminalTaskSystem extends Disposable implements ITaskSystem {
 
 		try {
 			const executeResult = { kind: TaskExecuteKind.Started, task, started: {}, promise: this._executeTask(task, resolver, trigger, new Set(), new Map(), undefined) };
+			if (task.configurationProperties.dependsOn) {
+				// Track the parent task #244744
+				const mapKey = task.getMapKey();
+				this._activeTasks[mapKey] = { task, promise: executeResult.promise, count: { count: 0 } };
+			}
 			executeResult.promise.then(summary => {
 				this._lastTask = this._currentTask;
 			});
 			return executeResult;
 		} catch (error) {
+			this._removeFromActiveTasks(task);
 			if (error instanceof TaskError) {
 				throw error;
 			} else if (error instanceof Error) {
@@ -528,6 +534,8 @@ export class TerminalTaskSystem extends Disposable implements ITaskSystem {
 							if (!taskResult) {
 								const activeTask = this._activeTasks[dependencyTask.getMapKey()] ?? this._getInstances(dependencyTask).pop();
 								taskResult = activeTask && this._getDependencyPromise(activeTask);
+								this._activeTasks[mapKey].terminal = activeTask?.terminal;
+								this._activeTasks[mapKey].count = { count: task.configurationProperties.dependsOn.length };
 							}
 						}
 						if (!taskResult) {
@@ -833,7 +841,6 @@ export class TerminalTaskSystem extends Disposable implements ITaskSystem {
 					eventCounter++;
 					this._busyTasks[mapKey] = task;
 					this._fireTaskEvent(TaskEvent.general(TaskEventKind.Active, task, terminal?.instanceId));
-					this._fireTaskEvent(TaskEvent.general(TaskEventKind.ProblemMatcherStarted, task, terminal?.instanceId));
 				} else if (event.kind === ProblemCollectorEventKind.BackgroundProcessingEnds) {
 					eventCounter--;
 					if (this._busyTasks[mapKey]) {
@@ -882,6 +889,7 @@ export class TerminalTaskSystem extends Disposable implements ITaskSystem {
 			this._fireTaskEvent(TaskEvent.start(task, terminal.instanceId, resolver.values));
 			let onData: IDisposable | undefined;
 			if (problemMatchers.length) {
+				this._fireTaskEvent(TaskEvent.general(TaskEventKind.ProblemMatcherStarted, task, terminal.instanceId));
 				// prevent https://github.com/microsoft/vscode/issues/174511 from happening
 				onData = terminal.onLineData((line) => {
 					watchingProblemMatcher.processLine(line);
