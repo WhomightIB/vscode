@@ -104,6 +104,7 @@ export interface ICodeActionContribution {
 export interface IAuthenticationContribution {
 	readonly id: string;
 	readonly label: string;
+	readonly issuerGlobs?: string[];
 }
 
 export interface IWalkthroughStep {
@@ -216,7 +217,7 @@ export interface IExtensionContributions {
 	readonly debugVisualizers?: IDebugVisualizationContribution[];
 	readonly chatParticipants?: ReadonlyArray<IChatParticipantContribution>;
 	readonly languageModelTools?: ReadonlyArray<IToolContribution>;
-	readonly modelContextServerCollections?: ReadonlyArray<IMcpCollectionContribution>;
+	readonly mcpServerDefinitionProviders?: ReadonlyArray<IMcpCollectionContribution>;
 }
 
 export interface IExtensionCapabilities {
@@ -280,6 +281,7 @@ export interface IRelaxedExtensionManifest {
 	engines: { readonly vscode: string };
 	description?: string;
 	main?: string;
+	type?: string;
 	browser?: string;
 	preview?: boolean;
 	// For now this only supports pointing to l10n bundle files

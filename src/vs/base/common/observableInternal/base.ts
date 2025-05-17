@@ -8,6 +8,7 @@ import { DisposableStore, EqualityComparer, IDisposable, strictEquals } from './
 import type { derivedOpts } from './derived.js';
 import { getLogger, logObservable } from './logging/logging.js';
 import { keepObserved, recomputeInitiallyAndOnChange } from './utils.js';
+import { onUnexpectedError } from '../errors.js';
 
 /**
  * Represents an observable value.
@@ -403,13 +404,29 @@ export class TransactionImpl implements ITransaction {
 	}
 
 	public updateObserver(observer: IObserver, observable: IObservable<any>): void {
+		if (!this._updatingObservers) {
+			// This happens when a transaction is used in a callback or async function.
+			// If an async transaction is used, make sure the promise awaits all users of the transaction (e.g. no race).
+			handleBugIndicatingErrorRecovery('Transaction already finished!');
+			// Error recovery
+			transaction(tx => {
+				tx.updateObserver(observer, observable);
+			});
+			return;
+		}
+
 		// When this gets called while finish is active, they will still get considered
-		this._updatingObservers!.push({ observer, observable });
+		this._updatingObservers.push({ observer, observable });
 		observer.beginUpdate(observable);
 	}
 
 	public finish(): void {
-		const updatingObservers = this._updatingObservers!;
+		const updatingObservers = this._updatingObservers;
+		if (!updatingObservers) {
+			handleBugIndicatingErrorRecovery('transaction.finish() has already been called!');
+			return;
+		}
+
 		for (let i = 0; i < updatingObservers.length; i++) {
 			const { observer, observable } = updatingObservers[i];
 			observer.endUpdate(observable);
@@ -422,6 +439,15 @@ export class TransactionImpl implements ITransaction {
 	public debugGetUpdatingObservers() {
 		return this._updatingObservers;
 	}
+}
+
+/**
+ * This function is used to indicate that the caller recovered from an error that indicates a bug.
+*/
+function handleBugIndicatingErrorRecovery(message: string) {
+	const err = new Error('BugIndicatingErrorRecovery: ' + message);
+	onUnexpectedError(err);
+	console.error('recovered from an error that indicates a bug', err);
 }
 
 /**
@@ -545,20 +571,18 @@ export class DisposableObservableValue<T extends IDisposable | undefined, TChang
 	}
 }
 
-export interface IChangeTracker {
+export interface IReaderWithStore extends IReader {
 	/**
-	 * Returns if this change should cause an invalidation.
-	 * Implementations can record changes.
+	 * Items in this store get disposed just before the observable recomputes/reruns or when it becomes unobserved.
 	*/
-	handleChange(context: IChangeContext): boolean;
-}
-
-export interface IChangeContext {
-	readonly changedObservable: IObservableWithChange<any, any>;
-	readonly change: unknown;
+	get store(): DisposableStore;
 
 	/**
-	 * Returns if the given observable caused the change.
-	 */
-	didChange<T, TChange>(observable: IObservableWithChange<T, TChange>): this is { change: TChange };
+	 * Items in this store get disposed just after the observable recomputes/reruns or when it becomes unobserved.
+	 * This is important if the current run needs the undisposed result from the last run.
+	 *
+	 * Warning: Items in this store might still get disposed before dependents (that read the now disposed value in the past) are recomputed with the new (undisposed) value!
+	 * A clean solution for this is ref counting.
+	*/
+	get delayedStore(): DisposableStore;
 }

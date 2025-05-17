@@ -13,6 +13,7 @@ import { ContextKeyExpr } from '../../../../../platform/contextkey/common/contex
 import { ExtensionIdentifier, IExtensionManifest } from '../../../../../platform/extensions/common/extensions.js';
 import { SyncDescriptor } from '../../../../../platform/instantiation/common/descriptors.js';
 import { ILogService } from '../../../../../platform/log/common/log.js';
+import { IProductService } from '../../../../../platform/product/common/productService.js';
 import { Registry } from '../../../../../platform/registry/common/platform.js';
 import { IWorkbenchContribution } from '../../../../common/contributions.js';
 import { Extensions, IExtensionFeaturesRegistry, IExtensionFeatureTableRenderer, IRenderedData, IRowData, ITableData } from '../../../../services/extensionManagement/common/extensionFeatures.js';
@@ -135,8 +136,6 @@ function toToolKey(extensionIdentifier: ExtensionIdentifier, toolName: string) {
 	return `${extensionIdentifier.value}/${toolName}`;
 }
 
-const CopilotAgentModeTag = 'vscode_editing';
-
 export class LanguageModelToolsExtensionPointHandler implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.toolsExtensionPointHandler';
 
@@ -145,40 +144,33 @@ export class LanguageModelToolsExtensionPointHandler implements IWorkbenchContri
 	constructor(
 		@ILanguageModelToolsService languageModelToolsService: ILanguageModelToolsService,
 		@ILogService logService: ILogService,
+		@IProductService productService: IProductService
 	) {
 		languageModelToolsExtensionPoint.setHandler((extensions, delta) => {
 			for (const extension of delta.added) {
 				for (const rawTool of extension.value) {
 					if (!rawTool.name || !rawTool.modelDescription || !rawTool.displayName) {
-						logService.error(`Extension '${extension.description.identifier.value}' CANNOT register tool without name, modelDescription, and displayName: ${JSON.stringify(rawTool)}`);
+						extension.collector.error(`Extension '${extension.description.identifier.value}' CANNOT register tool without name, modelDescription, and displayName: ${JSON.stringify(rawTool)}`);
 						continue;
 					}
 
 					if (!rawTool.name.match(/^[\w-]+$/)) {
-						logService.error(`Extension '${extension.description.identifier.value}' CANNOT register tool with invalid id: ${rawTool.name}. The id must match /^[\\w-]+$/.`);
+						extension.collector.error(`Extension '${extension.description.identifier.value}' CANNOT register tool with invalid id: ${rawTool.name}. The id must match /^[\\w-]+$/.`);
 						continue;
 					}
 
 					if (rawTool.canBeReferencedInPrompt && !rawTool.toolReferenceName) {
-						logService.error(`Extension '${extension.description.identifier.value}' CANNOT register tool with 'canBeReferencedInPrompt' set without a 'toolReferenceName': ${JSON.stringify(rawTool)}`);
+						extension.collector.error(`Extension '${extension.description.identifier.value}' CANNOT register tool with 'canBeReferencedInPrompt' set without a 'toolReferenceName': ${JSON.stringify(rawTool)}`);
 						continue;
 					}
 
 					if ((rawTool.name.startsWith('copilot_') || rawTool.name.startsWith('vscode_')) && !isProposedApiEnabled(extension.description, 'chatParticipantPrivate')) {
-						logService.error(`Extension '${extension.description.identifier.value}' CANNOT register tool with name starting with "vscode_" or "copilot_"`);
+						extension.collector.error(`Extension '${extension.description.identifier.value}' CANNOT register tool with name starting with "vscode_" or "copilot_"`);
 						continue;
 					}
 
-					if (rawTool.tags?.includes(CopilotAgentModeTag)) {
-						if (!isProposedApiEnabled(extension.description, 'languageModelToolsForAgent') && !isProposedApiEnabled(extension.description, 'chatParticipantPrivate')) {
-							logService.error(`Extension '${extension.description.identifier.value}' CANNOT register tool with tag "${CopilotAgentModeTag}" without enabling 'languageModelToolsForAgent' proposal`);
-							continue;
-						}
-					}
-
-					if (rawTool.tags?.some(tag => tag !== CopilotAgentModeTag && (tag.startsWith('copilot_') || tag.startsWith('vscode_'))) && !isProposedApiEnabled(extension.description, 'chatParticipantPrivate')) {
-						logService.error(`Extension '${extension.description.identifier.value}' CANNOT register tool with tags starting with "vscode_" or "copilot_"`);
-						continue;
+					if (rawTool.tags?.some(tag => tag.startsWith('copilot_') || tag.startsWith('vscode_')) && !isProposedApiEnabled(extension.description, 'chatParticipantPrivate')) {
+						extension.collector.error(`Extension '${extension.description.identifier.value}' CANNOT register tool with tags starting with "vscode_" or "copilot_"`);
 					}
 
 					const rawIcon = rawTool.icon;
@@ -195,16 +187,25 @@ export class LanguageModelToolsExtensionPointHandler implements IWorkbenchContri
 						};
 					}
 
+					// If OSS and the product.json is not set up, fall back to checking api proposal
+					const isBuiltinTool = productService.defaultChatAgent?.chatExtensionId ?
+						ExtensionIdentifier.equals(extension.description.identifier, productService.defaultChatAgent.chatExtensionId) :
+						isProposedApiEnabled(extension.description, 'chatParticipantPrivate');
 					const tool: IToolData = {
 						...rawTool,
-						extensionId: extension.description.identifier,
+						source: { type: 'extension', label: extension.description.displayName ?? extension.description.name, extensionId: extension.description.identifier, isExternalTool: !isBuiltinTool },
 						inputSchema: rawTool.inputSchema,
 						id: rawTool.name,
 						icon,
 						when: rawTool.when ? ContextKeyExpr.deserialize(rawTool.when) : undefined,
+						alwaysDisplayInputOutput: !isBuiltinTool,
 					};
-					const disposable = languageModelToolsService.registerToolData(tool);
-					this._registrationDisposables.set(toToolKey(extension.description.identifier, rawTool.name), disposable);
+					try {
+						const disposable = languageModelToolsService.registerToolData(tool);
+						this._registrationDisposables.set(toToolKey(extension.description.identifier, rawTool.name), disposable);
+					} catch (e) {
+						extension.collector.error(`Failed to register tool '${rawTool.name}': ${e}`);
+					}
 				}
 			}
 

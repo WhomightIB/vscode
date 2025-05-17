@@ -24,6 +24,8 @@ import { CancellationTokenSource } from '../../../../../base/common/cancellation
 class TestMcpHostDelegate extends Disposable implements IMcpHostDelegate {
 	private readonly _transport: TestMcpMessageTransport;
 
+	priority = 0;
+
 	constructor() {
 		super();
 		this._transport = this._register(new TestMcpMessageTransport());
@@ -77,7 +79,7 @@ suite('Workbench - MCP - ServerRequestHandler', () => {
 			.createLogger('mcpServerTest', { hidden: true, name: 'MCP Test' }));
 
 		// Start the handler creation
-		const handlerPromise = McpServerRequestHandler.create(instantiationService, transport, logger, cts.token);
+		const handlerPromise = McpServerRequestHandler.create(instantiationService, transport, logger, undefined, cts.token);
 
 		// Simulate successful initialization
 		// We need to respond to the initialize request that the handler will make
