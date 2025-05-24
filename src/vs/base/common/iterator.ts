@@ -7,8 +7,8 @@ import { isIterable } from './types.js';
 
 export namespace Iterable {
 
-	export function is<T = any>(thing: any): thing is Iterable<T> {
-		return thing && typeof thing === 'object' && typeof thing[Symbol.iterator] === 'function';
+	export function is<T = any>(thing: unknown): thing is Iterable<T> {
+		return !!thing && typeof thing === 'object' && typeof (thing as Iterable<T>)[Symbol.iterator] === 'function';
 	}
 
 	const _empty: Iterable<any> = Object.freeze([]);
@@ -110,6 +110,14 @@ export namespace Iterable {
 		return value;
 	}
 
+	export function length<T>(iterable: Iterable<T>): number {
+		let count = 0;
+		for (const _ of iterable) {
+			count++;
+		}
+		return count;
+	}
+
 	/**
 	 * Returns an iterable slice of the array, with the same semantics as `array.slice()`.
 	 */
@@ -163,6 +171,14 @@ export namespace Iterable {
 		for await (const item of iterable) {
 			result.push(item);
 		}
-		return Promise.resolve(result);
+		return result;
+	}
+
+	export async function asyncToArrayFlat<T>(iterable: AsyncIterable<T[]>): Promise<T[]> {
+		let result: T[] = [];
+		for await (const item of iterable) {
+			result = result.concat(item);
+		}
+		return result;
 	}
 }

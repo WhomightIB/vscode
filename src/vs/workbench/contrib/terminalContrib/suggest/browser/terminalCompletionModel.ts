@@ -26,6 +26,18 @@ const compareCompletionsFn = (leadingLineContent: string, a: TerminalCompletionI
 		return 1;
 	}
 
+	// Boost LSP provider completions
+	const lspProviderId = 'python';
+	const aIsLsp = a.completion.provider.includes(lspProviderId);
+	const bIsLsp = b.completion.provider.includes(lspProviderId);
+
+	if (aIsLsp && !bIsLsp) {
+		return -1;
+	}
+	if (bIsLsp && !aIsLsp) {
+		return 1;
+	}
+
 	// Sort by the score
 	let score = b.score[0] - a.score[0];
 	if (score !== 0) {
@@ -101,6 +113,22 @@ const compareCompletionsFn = (leadingLineContent: string, a: TerminalCompletionI
 			if (a.labelLowNormalizedPath.startsWith(b.labelLowNormalizedPath)) {
 				return 1; // `b` is a prefix of `a`, so `b` should come first
 			}
+		}
+	}
+
+	if (a.completion.kind !== b.completion.kind) {
+		// Sort by kind
+		if ((a.completion.kind === TerminalCompletionItemKind.Method || a.completion.kind === TerminalCompletionItemKind.Alias) && (b.completion.kind !== TerminalCompletionItemKind.Method && b.completion.kind !== TerminalCompletionItemKind.Alias)) {
+			return -1; // Methods and aliases should come first
+		}
+		if ((b.completion.kind === TerminalCompletionItemKind.Method || b.completion.kind === TerminalCompletionItemKind.Alias) && (a.completion.kind !== TerminalCompletionItemKind.Method && a.completion.kind !== TerminalCompletionItemKind.Alias)) {
+			return 1; // Methods and aliases should come first
+		}
+		if ((a.completion.kind === TerminalCompletionItemKind.File || a.completion.kind === TerminalCompletionItemKind.Folder) && (b.completion.kind !== TerminalCompletionItemKind.File && b.completion.kind !== TerminalCompletionItemKind.Folder)) {
+			return 1; // Resources should come last
+		}
+		if ((b.completion.kind === TerminalCompletionItemKind.File || b.completion.kind === TerminalCompletionItemKind.Folder) && (a.completion.kind !== TerminalCompletionItemKind.File && a.completion.kind !== TerminalCompletionItemKind.Folder)) {
+			return -1; // Resources should come last
 		}
 	}
 

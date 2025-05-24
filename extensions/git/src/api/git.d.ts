@@ -186,7 +186,6 @@ export interface RefQuery {
 	readonly contains?: string;
 	readonly count?: number;
 	readonly pattern?: string | string[];
-	readonly includeCommitDetails?: boolean;
 	readonly sort?: 'alphabetically' | 'committerdate';
 }
 
@@ -396,6 +395,7 @@ export interface GitExtension {
 
 export const enum GitErrorCodes {
 	BadConfigFile = 'BadConfigFile',
+	BadRevision = 'BadRevision',
 	AuthenticationFailed = 'AuthenticationFailed',
 	NoUserNameConfigured = 'NoUserNameConfigured',
 	NoUserEmailConfigured = 'NoUserEmailConfigured',
