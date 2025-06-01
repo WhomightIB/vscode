@@ -71,7 +71,10 @@ import { ChatInputBoxContentProvider } from '../../../chat/browser/chatEdinputIn
 import { constObservable, IObservable } from '../../../../../base/common/observable.js';
 import { ILanguageModelToolsService } from '../../../chat/common/languageModelToolsService.js';
 import { MockLanguageModelToolsService } from '../../../chat/test/common/mockLanguageModelToolsService.js';
-import { ChatAgentLocation } from '../../../chat/common/constants.js';
+import { ChatAgentLocation, ChatMode } from '../../../chat/common/constants.js';
+import { IPromptsService } from '../../../chat/common/promptSyntax/service/types.js';
+import { URI } from '../../../../../base/common/uri.js';
+import { IChatEntitlementService } from '../../../chat/common/chatEntitlementService.js';
 
 suite('InlineChatController', function () {
 
@@ -84,6 +87,7 @@ suite('InlineChatController', function () {
 		name: 'testEditorAgent',
 		isDefault: true,
 		locations: [ChatAgentLocation.Editor],
+		modes: [ChatMode.Ask],
 		metadata: {},
 		slashCommands: [],
 		disambiguation: [],
@@ -195,6 +199,12 @@ suite('InlineChatController', function () {
 			[ILanguageModelsService, new SyncDescriptor(LanguageModelsService)],
 			[ITextModelService, new SyncDescriptor(TextModelResolverService)],
 			[ILanguageModelToolsService, new SyncDescriptor(MockLanguageModelToolsService)],
+			[IPromptsService, new class extends mock<IPromptsService>() {
+				override async findInstructionFilesFor(_file: readonly URI[]): Promise<readonly URI[]> {
+					return [];
+				}
+			}],
+			[IChatEntitlementService, new class extends mock<IChatEntitlementService>() { }]
 		);
 
 		instaService = store.add((store.add(workbenchInstantiationService(undefined, store))).createChild(serviceCollection));
@@ -220,14 +230,14 @@ suite('InlineChatController', function () {
 
 		store.add(chatAgentService.registerDynamicAgent({ id: 'testEditorAgent', ...agentData, }, {
 			async invoke(request, progress, history, token) {
-				progress({
+				progress([{
 					kind: 'textEdit',
 					uri: model.uri,
 					edits: [{
 						range: new Range(1, 1, 1, 1),
 						text: request.message
 					}]
-				});
+				}]);
 				return {};
 			},
 		}));
@@ -306,14 +316,14 @@ suite('InlineChatController', function () {
 			...agentData
 		}, {
 			async invoke(request, progress, history, token) {
-				progress({
+				progress([{
 					kind: 'textEdit',
 					uri: editor.getModel().uri,
 					edits: [{
 						range: new Range(1, 1, 1, 1), // EDIT happens outside of whole range
 						text: `${request.message}\n${request.message}`
 					}]
-				});
+				}]);
 
 				return {};
 			},
@@ -371,9 +381,9 @@ suite('InlineChatController', function () {
 		}, {
 			async invoke(request, progress, history, token) {
 
-				progress({ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: 'hEllo1\n' }] });
-				progress({ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(2, 1, 2, 1), text: 'hEllo2\n' }] });
-				progress({ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1000, 1), text: 'Hello1\nHello2\n' }] });
+				progress([{ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: 'hEllo1\n' }] }]);
+				progress([{ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(2, 1, 2, 1), text: 'hEllo2\n' }] }]);
+				progress([{ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1000, 1), text: 'Hello1\nHello2\n' }] }]);
 
 				return {};
 			},
@@ -410,10 +420,10 @@ suite('InlineChatController', function () {
 					const text = '${CSI}#a\n${CSI}#b\n${CSI}#c\n';
 
 					await timeout(10);
-					progress({ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: text }] });
+					progress([{ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: text }] }]);
 
 					await timeout(10);
-					progress({ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: text.repeat(1000) + 'DONE' }] });
+					progress([{ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: text.repeat(1000) + 'DONE' }] }]);
 
 					throw new Error('Too long');
 				},
@@ -486,7 +496,7 @@ suite('InlineChatController', function () {
 			...agentData
 		}, {
 			async invoke(request, progress, history, token) {
-				progress({ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: request.message + (count++) }] });
+				progress([{ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: request.message + (count++) }] }]);
 				return {};
 			},
 		}));
@@ -526,7 +536,7 @@ suite('InlineChatController', function () {
 			...agentData
 		}, {
 			async invoke(request, progress, history, token) {
-				progress({ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: text.shift() ?? '' }] });
+				progress([{ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: text.shift() ?? '' }] }]);
 				return {};
 			},
 		}));
@@ -574,7 +584,7 @@ suite('InlineChatController', function () {
 			...agentData
 		}, {
 			async invoke(request, progress, history, token) {
-				progress({ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: text.shift() ?? '' }] });
+				progress([{ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: text.shift() ?? '' }] }]);
 				return {};
 			},
 		}));
@@ -614,7 +624,7 @@ suite('InlineChatController', function () {
 			...agentData
 		}, {
 			async invoke(request, progress, history, token) {
-				progress({ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: text.shift() ?? '' }] });
+				progress([{ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: text.shift() ?? '' }] }]);
 				return {};
 			},
 		}));
@@ -669,7 +679,7 @@ suite('InlineChatController', function () {
 			async invoke(request, progress, history, token) {
 				queueMicrotask(() => onDidInvoke.fire());
 				commandDetection.push(request.enableCommandDetection);
-				progress({ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: request.message + (count++) }] });
+				progress([{ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: request.message + (count++) }] }]);
 
 				if (count === 1) {
 					// FIRST call waits for cancellation
@@ -719,7 +729,7 @@ suite('InlineChatController', function () {
 		}, {
 			async invoke(request, progress, history, token) {
 				commandDetection.push(request.enableCommandDetection);
-				progress({ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: request.message + (count++) }] });
+				progress([{ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: request.message + (count++) }] }]);
 				return {};
 			},
 		}));
@@ -759,7 +769,7 @@ suite('InlineChatController', function () {
 
 				attempts.push(request.attempt);
 
-				progress({ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: `TRY:${request.attempt}\n` }] });
+				progress([{ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: `TRY:${request.attempt}\n` }] }]);
 				await raceCancellation(deferred.p, token);
 				deferred.complete();
 				await timeout(10);
@@ -793,7 +803,7 @@ suite('InlineChatController', function () {
 		model.setValue('World');
 
 		const deferred = new DeferredPromise<void>();
-		let progress: ((part: IChatProgress) => void) | undefined;
+		let progress: ((parts: IChatProgress[]) => void) | undefined;
 
 		store.add(chatAgentService.registerDynamicAgent({
 			id: 'testEditorAgent2',
@@ -819,7 +829,7 @@ suite('InlineChatController', function () {
 
 		const modelChange = new Promise<void>(resolve => model.onDidChangeContent(() => resolve()));
 
-		progress({ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: 'Hello-Hello' }] });
+		progress([{ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: 'Hello-Hello' }] }]);
 
 		await modelChange;
 		assert.strictEqual(model.getValue(), 'HelloWorld'); // first word has been streamed
@@ -876,14 +886,14 @@ suite('InlineChatController', function () {
 			store.add(chatAgentService.registerDynamicAgent({ id: 'testEditorAgent', ...agentData, }, {
 				async invoke(request, progress, history, token) {
 
-					progress({
+					progress([{
 						kind: 'textEdit',
 						uri: model.uri,
 						edits: [{
 							range: new Range(1, 1, 1, 1),
 							text: request.message
 						}]
-					});
+					}]);
 
 					if (request.message === 'two') {
 						await timeout(100); // give edit a chance
@@ -930,7 +940,7 @@ suite('InlineChatController', function () {
 		}, {
 			async invoke(request, progress, history, token) {
 
-				progress({ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: 'Hello-Hello' }] });
+				progress([{ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: 'Hello-Hello' }] }]);
 				await deferred.p;
 				return {};
 			},
@@ -967,11 +977,11 @@ suite('InlineChatController', function () {
 			}, {
 				async invoke(request, progress, history, token) {
 
-					progress({ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: 'Hello1' }] });
+					progress([{ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: 'Hello1' }] }]);
 					await timeout(100);
-					progress({ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: 'Hello2' }] });
+					progress([{ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: 'Hello2' }] }]);
 					await timeout(100);
-					progress({ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: 'Hello3' }] });
+					progress([{ kind: 'textEdit', uri: model.uri, edits: [{ range: new Range(1, 1, 1, 1), text: 'Hello3' }] }]);
 					await timeout(100);
 
 					return {
