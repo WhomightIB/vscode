@@ -26,7 +26,7 @@ const gunzip = require('gulp-gunzip');
 const File = require('vinyl');
 const fs = require('fs');
 const glob = require('glob');
-const { compileBuildTask } = require('./gulpfile.compile');
+const { compileBuildWithManglingTask } = require('./gulpfile.compile');
 const { cleanExtensionsBuildTask, compileNonNativeExtensionsBuildTask, compileNativeExtensionsBuildTask, compileExtensionMediaBuildTask } = require('./gulpfile.extensions');
 const { vscodeWebResourceIncludes, createVSCodeWebFileContentMapper } = require('./gulpfile.vscode.web');
 const cp = require('child_process');
@@ -257,7 +257,7 @@ function packageTask(type, platform, arch, sourceFolderName, destinationFolderNa
 		const src = gulp.src(sourceFolderName + '/**', { base: '.' })
 			.pipe(rename(function (path) { path.dirname = path.dirname.replace(new RegExp('^' + sourceFolderName), 'out'); }))
 			.pipe(util.setExecutableBit(['**/*.sh']))
-			.pipe(filter(['**', '!**/*.js.map']));
+			.pipe(filter(['**', '!**/*.{js,css}.map']));
 
 		const workspaceExtensionPoints = ['debuggers', 'jsonValidation'];
 		const isUIExtension = (manifest) => {
@@ -298,7 +298,7 @@ function packageTask(type, platform, arch, sourceFolderName, destinationFolderNa
 		const extensions = gulp.src(extensionPaths, { base: '.build', dot: true });
 		const extensionsCommonDependencies = gulp.src('.build/extensions/node_modules/**', { base: '.build', dot: true });
 		const sources = es.merge(src, extensions, extensionsCommonDependencies)
-			.pipe(filter(['**', '!**/*.js.map'], { dot: true }));
+			.pipe(filter(['**', '!**/*.{js,css}.map'], { dot: true }));
 
 		let version = packageJson.version;
 		const quality = product.quality;
@@ -333,7 +333,7 @@ function packageTask(type, platform, arch, sourceFolderName, destinationFolderNa
 		const dependenciesSrc = productionDependencies.map(d => path.relative(REPO_ROOT, d)).map(d => [`${d}/**`, `!${d}/**/{test,tests}/**`, `!${d}/.bin/**`]).flat();
 		const deps = gulp.src(dependenciesSrc, { base: 'remote', dot: true })
 			// filter out unnecessary files, no source maps in server build
-			.pipe(filter(['**', '!**/package-lock.json', '!**/*.js.map']))
+			.pipe(filter(['**', '!**/package-lock.json', '!**/*.{js,css}.map']))
 			.pipe(util.cleanNodeModules(path.join(__dirname, '.moduleignore')))
 			.pipe(util.cleanNodeModules(path.join(__dirname, `.moduleignore.${process.platform}`)))
 			.pipe(jsFilter)
@@ -473,7 +473,7 @@ function tweakProductForServerWeb(product) {
 			gulp.task(serverTaskCI);
 
 			const serverTask = task.define(`vscode-${type}${dashed(platform)}${dashed(arch)}${dashed(minified)}`, task.series(
-				compileBuildTask,
+				compileBuildWithManglingTask,
 				cleanExtensionsBuildTask,
 				compileNonNativeExtensionsBuildTask,
 				compileExtensionMediaBuildTask,
